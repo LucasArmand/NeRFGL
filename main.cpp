@@ -9,11 +9,14 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <time.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+#include <stdio.h>
+#include <stdlib.h>
+const int windowWidth = 320;
+const int windowHeight = 240;
 
-int windowWidth = 800;
-int windowHeight = 600;
-
-
+/*
 void framebufferSizeCallback(GLFWwindow* window, int width, int height)
 {
     windowWidth = width;
@@ -21,6 +24,7 @@ void framebufferSizeCallback(GLFWwindow* window, int width, int height)
 
     glViewport(0, 0, width, height);
 }
+*/
 
 std::string readShaderFile(const std::string& filePath)
 {
@@ -63,14 +67,14 @@ int main() {
     if (!glfwInit()) {
         return -1;
     }
-    GLFWwindow* window = glfwCreateWindow(640, 480, "Hello World", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(windowWidth, windowHeight, "NeRFGL", NULL, NULL);
     if (!window) {
         glfwTerminate();
         return -1;
     }
 
     glfwMakeContextCurrent(window);
-    glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
+    //glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
     glViewport(0, 0, windowWidth, windowHeight);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -95,6 +99,14 @@ int main() {
     compSource.append(readShaderFile("compute_shader.glsl"));
     const char* computeShaderSource = compSource.c_str();
 
+    const char* filename = "room.jpg"; // Replace with the path to your image file
+    int width, height, channels;
+    unsigned char* imageData = stbi_load(filename, &width, &height, &channels, 0);
+
+    if (imageData == nullptr) {
+        // Image loading failed
+        // Handle the error
+    }
 
     int frameCount = 0;
     float elapsedTime = 0.0f;
@@ -226,8 +238,38 @@ int main() {
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
     glDeleteShader(computeShader);
+    
+    /*
+    unsigned int framebuffer;
+    glGenFramebuffers(1, &framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
 
+    unsigned int frameTexture;
+    glGenTextures(1, &frameTexture);
+    glBindTexture(GL_TEXTURE_2D, frameTexture);
+    
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, windowWidth, windowHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, &textureData[0]);
 
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR); 
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR); 
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    GLuint depthrenderbuffer;
+    glGenRenderbuffers(1, &depthrenderbuffer);
+    glBindRenderbuffer(GL_RENDERBUFFER, depthrenderbuffer);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, windowWidth, windowHeight);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthrenderbuffer);
+
+    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, frameTexture, 0);
+    GLenum DrawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
+    glDrawBuffers(1, DrawBuffers);
+    */
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        return false;
+    }
+
+    
 
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, hiddenWeightsSSBO);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, inputWeightsSSBO);
@@ -236,8 +278,9 @@ int main() {
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
 
     float lastFrameTime = static_cast<float>(glfwGetTime());
-
+    //glBindFramebuffer(GL_FRAMEBUFFER, framebuffer); //?
     glViewport(0, 0, windowWidth, windowHeight);
+    char* textureData = (char*)malloc(3 * windowWidth * windowHeight * sizeof(char));
     while (!glfwWindowShouldClose(window)) {
 
         frameCount++;
@@ -259,9 +302,9 @@ int main() {
         
         lastFrameTime = time;
 
-        glUseProgram(computeProgram);
-        glDispatchCompute(1, 1, 1);
-        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
+        //glUseProgram(computeProgram);
+        //glDispatchCompute(1, 1, 1);
+        //glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
 
         glUseProgram(shaderProgram);
 
@@ -272,7 +315,16 @@ int main() {
         glDrawArrays(GL_TRIANGLES, 3, 3);
         glDisableClientState(GL_VERTEX_ARRAY);
 
-
+        glReadPixels(0, 0, windowWidth, windowHeight, GL_RGB, GL_UNSIGNED_BYTE, &textureData[0]);
+        for (int x = 0; x < windowWidth; x++) {
+            for (int y = 0; y < windowHeight; y++) {
+                int pixelIndex = (y * width + x) * 3;
+                int d_red = imageData[pixelIndex] - textureData[pixelIndex];
+                int d_green = imageData[pixelIndex + 1] - textureData[pixelIndex + 1];
+                int d_blue = imageData[pixelIndex + 2] - textureData[pixelIndex + 2];
+                //std::cout << "Loss for " << x << ", " << y << ": (" << d_red << ", " << d_green << ", " << d_blue << ")" << std::endl;
+            }
+        }
         glfwSwapBuffers(window);
         glfwPollEvents();
     }

@@ -3,7 +3,7 @@ precision highp float;
 uniform vec2 resolution;
 uniform float time;
 
-out vec4 fragColor;
+layout(location = 0) out vec4 color;
 
 layout(std430, binding=3) buffer HiddenWeights{
     float hiddenWeights[];
@@ -114,7 +114,7 @@ void main()
     vec3 pointLight = vec3(5.0 * cos(time), 0.0, 5.0 * sin(time));
 
     float MIN_RAY_DISTANCE = 1.0;
-    float MAX_RAY_DISTANCE = 30.0;
+    float MAX_RAY_DISTANCE = 10.0;
     int MAX_ITER = 30;
     
     float DISTANCE_THRESHOLD = 0.001;
@@ -125,35 +125,39 @@ void main()
     vec3 rayDirection = vec3(uv * 2.0 - vec2(ratio, 1.0), -1.0);
     vec3 rayOrigin = vec3(0.0, 0.0, 0.0);
 
-   // vec3 cameraPosition = 1 * vec3(-1.0 * sin(time), 5 * cos(time * .2), -1.0 * cos(time));
+   
     vec3 cameraPosition = 10 * vec3(sin(time), 0.0, cos(time));
-    //vec3 cameraForward_w = normalize(vec3(1.0 * sin(time), 0.0, 1.0 * cos(time)));
+
     vec3 cameraForward_w = normalize(vec3(1.0 * sin(time), 0.0, 1.0 * cos(time)));
     vec3 cameraUp_w = normalize(vec3(0.0, 1.0, 0.0));
     vec3 cameraRight_w = cross(cameraForward_w, cameraUp_w);
+
     mat3 c;
     c[0] = cameraRight_w;
     c[1] = cameraUp_w;
     c[2] = cameraForward_w;
+
     mat3 c_i = inverse(c);
+
     rayOrigin = c_i * rayOrigin + cameraPosition;
     rayDirection = c_i * rayDirection;
+
     float t = MIN_RAY_DISTANCE;
     
     float sample_interval = (MAX_RAY_DISTANCE - MIN_RAY_DISTANCE) / MAX_ITER;
     int n = 0;
-    vec3 color = vec3(0, 0, 0);
+    vec3 resColor = vec3(0, 0, 0);
     float transmittance = 0.0;
     while (n < MAX_ITER) {
         vec3 pos = rayOrigin + t * rayDirection;
         getSample(pos, rayDirection);
         
-        color += sampleColor * sampleDensity * exp(-transmittance);
+        resColor += sampleColor * sampleDensity * exp(-transmittance);
         t += sample_interval;
         transmittance += sampleDensity;
         n++;
     }
 
-    fragColor = vec4(color, 1.0);
+    color = vec4(resColor, 1.0);
     
 }
