@@ -19,8 +19,8 @@ layout(std430, binding=5) buffer OutputWeights{
 vec3 sampleColor;
 float sampleDensity;
 
-const unsigned int numHiddenLayers = 3;
-const unsigned int numNodesPerLayer = 10;
+const unsigned int numHiddenLayers = 2;
+const unsigned int numNodesPerLayer = 40;
 const unsigned int numInputs = 6;
 const unsigned int numOutputs = 4;
 
@@ -93,16 +93,29 @@ void getSample(vec3 pos, vec3 dir) {
 */
 }
 
-
+void getSampleTest(vec3 pos, vec3 dir) {
+    sampleColor = vec3(-pos.x, pos.y, pos.z) * vec3(1.0, 1.0, 1.0);
+    sampleDensity = exp(-length(pos));// * sin(pos.x + time) * cos(pos.z + time * 0.7);
+    /*
+    if (pos.x < 1.0 && pos.x > 0.0 && pos.y < 1.0 && pos.y > 0.0 && pos.z < 1.0 && pos.z > 0) {
+        sampleDensity = 1.0;
+        sampleColor = vec3(1.0, 1.0, 1.0);
+    }
+    if (pos.x < 1.0 && pos.x > 0.0 && pos.y < 1.0 && pos.y > 0.0 && pos.z < 2.0 && pos.z > 1.0) {
+        sampleDensity = 2.0;
+        sampleColor = vec3(0.0, 1.0, 0.0);
+    }
+    */
+}
 
 
 void main()
 {
     vec3 pointLight = vec3(5.0 * cos(time), 0.0, 5.0 * sin(time));
 
-    float MIN_RAY_DISTANCE = 0.01;
-    float MAX_RAY_DISTANCE = 1000.0;
-    int MAX_ITER = 15;
+    float MIN_RAY_DISTANCE = 1.0;
+    float MAX_RAY_DISTANCE = 30.0;
+    int MAX_ITER = 30;
     
     float DISTANCE_THRESHOLD = 0.001;
     float min_scale = min(resolution.x, resolution.y);
@@ -110,7 +123,21 @@ void main()
     float ratio = resolution.x / resolution.y;
 
     vec3 rayDirection = vec3(uv * 2.0 - vec2(ratio, 1.0), -1.0);
-    vec3 rayOrigin = vec3(0.0, 0.0, 3.0);
+    vec3 rayOrigin = vec3(0.0, 0.0, 0.0);
+
+   // vec3 cameraPosition = 1 * vec3(-1.0 * sin(time), 5 * cos(time * .2), -1.0 * cos(time));
+    vec3 cameraPosition = 10 * vec3(sin(time), 0.0, cos(time));
+    //vec3 cameraForward_w = normalize(vec3(1.0 * sin(time), 0.0, 1.0 * cos(time)));
+    vec3 cameraForward_w = normalize(vec3(1.0 * sin(time), 0.0, 1.0 * cos(time)));
+    vec3 cameraUp_w = normalize(vec3(0.0, 1.0, 0.0));
+    vec3 cameraRight_w = cross(cameraForward_w, cameraUp_w);
+    mat3 c;
+    c[0] = cameraRight_w;
+    c[1] = cameraUp_w;
+    c[2] = cameraForward_w;
+    mat3 c_i = inverse(c);
+    rayOrigin = c_i * rayOrigin + cameraPosition;
+    rayDirection = c_i * rayDirection;
     float t = MIN_RAY_DISTANCE;
     
     float sample_interval = (MAX_RAY_DISTANCE - MIN_RAY_DISTANCE) / MAX_ITER;

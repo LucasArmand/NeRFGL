@@ -54,6 +54,8 @@ double ranf(double min, double max)
     return (((double)rand()) / RAND_MAX) * (max - min) + min;
 }
 
+
+
 int main() {
 
     srand(time(NULL));
@@ -162,8 +164,8 @@ int main() {
 
     const float radius = 10.0f;
 
-    const unsigned int numHiddenLayers = 3;
-    const unsigned int numNodesPerLayer = 10;
+    const unsigned int numHiddenLayers = 2;
+    const unsigned int numNodesPerLayer = 40;
     const unsigned int numInputs = 6;
     const unsigned int numOutputs = 4;
 
