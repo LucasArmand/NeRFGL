@@ -95,7 +95,9 @@ int main() {
     const char* fragmentShaderSource = fragSource.c_str();
 
     std::string compSource = "#version 430 core\n";
-    compSource.append(std::string("#define WORK_GROUP_SIZE_X ").append(std::to_string(workGroupSize)).append("\n"));
+    compSource.append(std::string("#define WORK_GROUP_SIZE_X ").append(std::to_string(windowWidth)).append("\n"));
+    compSource.append(std::string("#define WORK_GROUP_SIZE_Y ").append(std::to_string(windowHeight)).append("\n"));
+    compSource.append(std::string("#define WORK_GROUP_SIZE_Z ").append(std::to_string(1)).append("\n"));
     compSource.append(readShaderFile("compute_shader.glsl"));
     const char* computeShaderSource = compSource.c_str();
 
@@ -164,17 +166,18 @@ int main() {
         return -1;
     }
 
+    unsigned int texture;
+    glGenTextures(1, &texture);
 
-    glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 3.0f);
-    glm::vec3 cameraTarget = glm::vec3(0.0f, 0.0f, 0.0f);
-    glm::vec3 cameraDirection = glm::normalize(cameraPos - cameraTarget);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-    glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
-    glm::vec3 cameraRight = glm::normalize(glm::cross(up, cameraDirection));
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, imageData);
+    glGenerateMipmap(GL_TEXTURE_2D);
 
-    glm::vec3 cameraUp = glm::cross(cameraDirection, cameraRight);
-
-    const float radius = 10.0f;
 
     const unsigned int numHiddenLayers = 2;
     const unsigned int numNodesPerLayer = 40;
@@ -233,12 +236,16 @@ int main() {
     glLinkProgram(computeProgram);
 
     GLint resolutionLoc = glGetUniformLocation(shaderProgram, "resolution");
+    GLint resolutionCompLoc = glGetUniformLocation(computeProgram, "resolution");
     GLint timeLoc = glGetUniformLocation(shaderProgram, "time");
+    GLint timeCompLoc = glGetUniformLocation(computeProgram, "time");
 
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
     glDeleteShader(computeShader);
     
+
+
     /*
     unsigned int framebuffer;
     glGenFramebuffers(1, &framebuffer);
@@ -288,9 +295,10 @@ int main() {
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
         glUniform2f(resolutionLoc, static_cast<float>(width), static_cast<float>(height));
-
+        glUniform2f(resolutionCompLoc, static_cast<float>(width), static_cast<float>(height));
         float time = static_cast<float>(glfwGetTime());
         glUniform1f(timeLoc, time);
+        glUniform1f(timeCompLoc, time);
 
         glClear(GL_COLOR_BUFFER_BIT);
 
