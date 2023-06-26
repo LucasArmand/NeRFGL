@@ -179,14 +179,17 @@ int main() {
     glGenerateMipmap(GL_TEXTURE_2D);
 
 
-    const unsigned int numHiddenLayers = 8;
+    const unsigned int numHiddenLayers = 4;
     const unsigned int numNodesPerLayer = 40;
     const unsigned int numInputs = 6;
     const unsigned int numOutputs = 4;
 
     float inputWeights[numInputs * numNodesPerLayer];
+    float DFinputWeights[numInputs * numNodesPerLayer];
     float *hiddenWeights = (float*)malloc(sizeof(float) * (numHiddenLayers - 1) * numNodesPerLayer * numNodesPerLayer);
+    float *DFhiddenWeights = (float*)malloc(sizeof(float) * (numHiddenLayers - 1) * numNodesPerLayer * numNodesPerLayer);
     float outputWeights[numNodesPerLayer * numOutputs];
+    float DFoutputWeights[numNodesPerLayer * numOutputs];
 
     for (int i = 0; i < numInputs; i++) {
         for (int j = 0; j < numNodesPerLayer; j++) {
@@ -197,6 +200,7 @@ int main() {
         for (int i = 0; i < numNodesPerLayer; i++) {
             for (int j = 0; j < numNodesPerLayer; j++) {
                 hiddenWeights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] = ranf(-1, 1);
+                DFhiddenWeights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] = 0.0;
             }
         }
     }
@@ -211,17 +215,32 @@ int main() {
     GLuint hiddenWeightsSSBO;
     glGenBuffers(1, &hiddenWeightsSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, hiddenWeightsSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, numInputs * numNodesPerLayer * sizeof(float), &hiddenWeights[0], GL_DYNAMIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, numNodesPerLayer * (numHiddenLayers - 1) * numNodesPerLayer * sizeof(float), &hiddenWeights[0], GL_DYNAMIC_DRAW);
 
     GLuint inputWeightsSSBO;
     glGenBuffers(1, &inputWeightsSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, inputWeightsSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, numHiddenLayers * numNodesPerLayer * sizeof(float), &inputWeights[0], GL_DYNAMIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, numInputs * numNodesPerLayer * sizeof(float), &inputWeights[0], GL_DYNAMIC_DRAW);
 
     GLuint outputWeightsSSBO;
     glGenBuffers(1, &outputWeightsSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, outputWeightsSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, numNodesPerLayer * numOutputs * sizeof(float), &outputWeights[0], GL_DYNAMIC_DRAW);
+
+    GLuint DFhiddenWeightsSSBO;
+    glGenBuffers(1, &DFhiddenWeightsSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, DFhiddenWeightsSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, numNodesPerLayer * (numHiddenLayers - 1) * numNodesPerLayer * sizeof(float), &DFhiddenWeights[0], GL_DYNAMIC_DRAW);
+
+    GLuint DFinputWeightsSSBO;
+    glGenBuffers(1, &DFinputWeightsSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, DFinputWeightsSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, numInputs * numNodesPerLayer * sizeof(float), &DFinputWeights[0], GL_DYNAMIC_DRAW);
+
+    GLuint DFoutputWeightsSSBO;
+    glGenBuffers(1, &DFoutputWeightsSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, DFoutputWeightsSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, numNodesPerLayer* numOutputs * sizeof(float), &DFoutputWeights[0], GL_DYNAMIC_DRAW);
 
     
     unsigned int shaderProgram;
@@ -281,6 +300,9 @@ int main() {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, hiddenWeightsSSBO);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, inputWeightsSSBO);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, outputWeightsSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, DFhiddenWeightsSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, DFinputWeightsSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, DFoutputWeightsSSBO);
 
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
 
@@ -310,13 +332,19 @@ int main() {
         
         lastFrameTime = time;
 
-        //glUseProgram(computeProgram);
-        //glDispatchCompute(1, 1, 1);
-        //glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
+        glUseProgram(computeProgram);
+        glDispatchCompute(1, 1, 1);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
 
-        glUseProgram(shaderProgram);
-
-        
+        glGetNamedBufferSubData(DFoutputWeightsSSBO, 0, numNodesPerLayer * numOutputs * sizeof(float), &DFoutputWeights[0]);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
+        //glUseProgram(shaderProgram);
+        std::cout << std::endl;
+        for (int i = 0; i < 5; i++) {
+            for (int j = 0; j < numOutputs; j++) {
+                std::cout << DFoutputWeights[i * numOutputs + j] << " ";
+            }
+        }
         glEnableClientState(GL_VERTEX_ARRAY);
         glVertexPointer(3, GL_FLOAT, 0, vertices);
         glDrawArrays(GL_TRIANGLES, 0, 3);

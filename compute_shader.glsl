@@ -15,7 +15,15 @@ layout(std430, binding=4) buffer InputWeights{
 layout(std430, binding=5) buffer OutputWeights{
     float outputWeights[];
 };
-
+layout(std430, binding=6) buffer DFHiddenWeights{
+    float df_hidden_weights[];
+};
+layout(std430, binding=7) buffer DFInputWeights{
+    float df_input_weights[];
+};
+layout(std430, binding=8) buffer DFOutputWeights{
+    float df_output_weights[];
+};
 uniform vec2 resolution;
 uniform float time;
 
@@ -24,7 +32,7 @@ uniform sampler2D imageTexture;
 vec3 sampleColor;
 float sampleDensity;
 
-const unsigned int numHiddenLayers = 2;
+const unsigned int numHiddenLayers = 4;
 const unsigned int numNodesPerLayer = 40;
 const unsigned int numInputs = 6;
 const unsigned int numOutputs = 4;
@@ -115,10 +123,6 @@ void backwards(float loss) {
     float d_hidden_weights[numNodesPerLayer * numNodesPerLayer * (numHiddenLayers - 1)];
     float d_output_weights[numNodesPerLayer * numOutputs];
 
-    float df_input_weights[numInputs * numNodesPerLayer];
-    float df_hidden_weights[numNodesPerLayer * numNodesPerLayer * (numHiddenLayers - 1)];
-    float df_output_weights[numNodesPerLayer * numOutputs];
-
     float learning_rate = 0.05;
 
     float d_output_nodes[numOutputs];
@@ -129,7 +133,7 @@ void backwards(float loss) {
     // https://en.wikipedia.org/wiki/Backpropagation#Finding_the_derivative_of_the_error
 
     for (int n = 0; n < MAX_ITER; n++) {
-    
+        
         struct raySample s = samples[n];
         getSample(s.pos, s.dir);
 
@@ -140,79 +144,67 @@ void backwards(float loss) {
             } else {
                 d_output_nodes[j] = 0;   
             }
+       
         }
         for (int i = 0; i < numNodesPerLayer; i++) {
             for (int j = 0; j < numOutputs; j++) {
-                d_output_weights[i * numOutputs + j] = hiddenVec[(numHidenLayers - 1) * numNodesPerLayer + j] * d_output_nodes[j];
+                d_output_weights[i * numOutputs + j] = hiddenVec[(numHiddenLayers - 1) * numNodesPerLayer + j] * d_output_nodes[j];
             }
         }
+        
         //Last hidden layer
         for (int j = 0; j < numNodesPerLayer; j++) {
             //ReLU derivative
             if (hiddenVec[(numHiddenLayers - 1) * numNodesPerLayer + j] > 0) {
                 for (int k = 0; k < numOutputs; k++) {
-                    d_hidden_nodes[(numHidenLayers - 1) * numNodesPerLayer + j] += d_output_nodes[k] * output_weights[j * numOutputs + k]
+                    d_hidden_nodes[(numHiddenLayers - 1) * numNodesPerLayer + j] += d_output_nodes[k] * outputWeights[j * numOutputs + k];
                 }
             }
         }
-
+        
         //move backwards in hidden layers (destination, not including first layer)
-        for (int l = numHiddenLayers - 1; l > 0; l--) {
+        for (uint l = numHiddenLayers - 1; l > 0; l--) {
             for (int i = 0; i < numNodesPerLayer; i++) {
                 for (int j = 0; j < numNodesPerLayer; j++) {
-                    d_hidden_weights[(l-1) * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] = hiddenVec[(l-1) * numNodesPerLayer + i] * d_hidden_nodes[l * numNodesPerLayer + j];
+                    df_hidden_weights[(l-1) * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] += hiddenVec[(l-1) * numNodesPerLayer + i] * d_hidden_nodes[l * numNodesPerLayer + j];
                     if (hiddenVec[(l-1) * numNodesPerLayer + i] > 0) {
                         d_hidden_nodes[(l-1) * numNodesPerLayer + i] += hiddenWeights[(l-1) * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] * d_hidden_nodes[l * numNodesPerLayer + j];
                     }
                 }
             }
         }
+        
         //Input layer
         for (int i = 0; i < numInputs; i++) {
             for (int j = 0; j < numNodesPerLayer; j++) {
-                df_input_weights[i * numNodesPerLayer + j] += inputVec[i] * d_hidden_nodes[j];
+                df_input_weights[i * numNodesPerLayer + j] += inputVec[i] * d_hidden_nodes[j] * learning_rate;
             }
         }
-
+        
+        /*
         //Add this ray sample to the final weight delta
-        for (int l = 0; l < numHiddenLayers; l++) {
+        for (int l = 0; l < numHiddenLayers - 1; l++) {
             for (int i = 0; i < numNodesPerLayer; i++) {
                 for (int j = 0; j < numNodesPerLayer; j++) {
-                    df_hidden_weights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] += d_hidden_weights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j];
+                    //df_hidden_weights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] += d_hidden_weights[0];// * learning_rate;
                 }
             }
         }
+        */
+        
         for (int i = 0; i < numNodesPerLayer; i++) {
             for (int j = 0; j < numOutputs; j++) {
-                df_output_weights[i * numOutputs + j] += d_output_weights[i * numOutputs + j];
+                df_output_weights[i * numOutputs + j] += d_output_weights[i * numOutputs + j] * learning_rate;
             }
         }
+        
     }
-
-    //Apply the weight change
-    for (int i = 0; i < numInputs; i++) {
-            for (int j = 0; j < numNodesPerLayer; j++) {
-                atomicAdd(input[i * numNodesPerLayer + j], df_input_weights[i * numNodesPerLayer + j] * learning_rate);
-            }
-        }
-
-        //Add this ray sample to the final weight delta
-        for (int l = 0; l < numHiddenLayers; l++) {
-            for (int i = 0; i < numNodesPerLayer; i++) {
-                for (int j = 0; j < numNodesPerLayer; j++) {
-                    atomicAdd(hidden_weights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j], df_hidden_weights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] * learning_rate); 
-            }
-        }
-        for (int i = 0; i < numNodesPerLayer; i++) {
-            for (int j = 0; j < numOutputs; j++) {
-                atomicAdd(output_weights[i * numOutputs + j], df_output_weights[i * numOutputs + j] * learning_rate);
-            }
-        }
 }
 
 
 void main() {
 
+    /**/
     float MIN_RAY_DISTANCE = 1.0;
     float MAX_RAY_DISTANCE = 10.0; 
     
@@ -265,11 +257,12 @@ void main() {
         samples[n].alpha = alpha;
         n++;
     }
-
+    
     vec4 color = vec4(resColor, 1.0);
     vec4 target = texture2D(imageTexture, uv);
     vec3 diff = target.xyz - color.xyz;
-
+    
     backwards(length(diff));
     
+    //df_output_weights[0] = 5;
 }
