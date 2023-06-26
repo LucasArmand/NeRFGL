@@ -179,7 +179,7 @@ int main() {
     glGenerateMipmap(GL_TEXTURE_2D);
 
 
-    const unsigned int numHiddenLayers = 2;
+    const unsigned int numHiddenLayers = 8;
     const unsigned int numNodesPerLayer = 40;
     const unsigned int numInputs = 6;
     const unsigned int numOutputs = 4;
@@ -302,7 +302,7 @@ int main() {
 
         glClear(GL_COLOR_BUFFER_BIT);
 
-        if (frameCount % 100 == 0) {
+        if (frameCount % 5 == 0) {
             float fps = 1 / (time - lastFrameTime);
             std::string fpsText = "FPS: " + std::to_string(fps);
             std::cout << fpsText << std::endl;
@@ -323,6 +323,7 @@ int main() {
         glDrawArrays(GL_TRIANGLES, 3, 3);
         glDisableClientState(GL_VERTEX_ARRAY);
 
+        /*
         glReadPixels(0, 0, windowWidth, windowHeight, GL_RGB, GL_UNSIGNED_BYTE, &textureData[0]);
         for (int x = 0; x < windowWidth; x++) {
             for (int y = 0; y < windowHeight; y++) {
@@ -333,6 +334,7 @@ int main() {
                 //std::cout << "Loss for " << x << ", " << y << ": (" << d_red << ", " << d_green << ", " << d_blue << ")" << std::endl;
             }
         }
+        */
         glfwSwapBuffers(window);
         glfwPollEvents();
     }

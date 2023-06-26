@@ -19,7 +19,7 @@ layout(std430, binding=5) buffer OutputWeights{
 vec3 sampleColor;
 float sampleDensity;
 
-const unsigned int numHiddenLayers = 2;
+const unsigned int numHiddenLayers = 8;
 const unsigned int numNodesPerLayer = 40;
 const unsigned int numInputs = 6;
 const unsigned int numOutputs = 4;
