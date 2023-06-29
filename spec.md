@@ -14,3 +14,7 @@ and any more than 30 nodes per layer, but NeRF paper has 8 layers of 256 channel
 -Hardcoded GPU backprop will probably never come close to PyTorch or TF because 
 I am not a large team of machine learning experts.
 
+## TODO
+- Get compute shader backpropogation working fully
+- Allow creation of ML models using high level configuration specification
+- Implement working MLP into NeRF renderer

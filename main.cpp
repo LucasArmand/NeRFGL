@@ -13,8 +13,8 @@
 #include "stb_image.h"
 #include <stdio.h>
 #include <stdlib.h>
-const int windowWidth = 320;
-const int windowHeight = 240;
+const int windowWidth = 32;
+const int windowHeight = 24;
 
 /*
 void framebufferSizeCallback(GLFWwindow* window, int width, int height)
@@ -60,7 +60,7 @@ double ranf(double min, double max)
 
 
 
-int main() {
+int main_inactive() {
 
     srand(time(NULL));
 
@@ -101,7 +101,7 @@ int main() {
     compSource.append(readShaderFile("compute_shader.glsl"));
     const char* computeShaderSource = compSource.c_str();
 
-    const char* filename = "room.jpg"; // Replace with the path to your image file
+    const char* filename = "red.jpg"; // Replace with the path to your image file
     int width, height, channels;
     unsigned char* imageData = stbi_load(filename, &width, &height, &channels, 0);
 
@@ -333,18 +333,43 @@ int main() {
         lastFrameTime = time;
 
         glUseProgram(computeProgram);
-        glDispatchCompute(1, 1, 1);
+        glDispatchCompute(windowWidth, windowHeight, 1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
 
+        glGetNamedBufferSubData(DFinputWeightsSSBO, 0, numNodesPerLayer * numInputs * sizeof(float), &DFinputWeights[0]);
+        glGetNamedBufferSubData(DFhiddenWeightsSSBO, 0, numNodesPerLayer * numNodesPerLayer * (numHiddenLayers - 1) * sizeof(float), &DFhiddenWeights[0]);
         glGetNamedBufferSubData(DFoutputWeightsSSBO, 0, numNodesPerLayer * numOutputs * sizeof(float), &DFoutputWeights[0]);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
-        //glUseProgram(shaderProgram);
-        std::cout << std::endl;
-        for (int i = 0; i < 5; i++) {
-            for (int j = 0; j < numOutputs; j++) {
-                std::cout << DFoutputWeights[i * numOutputs + j] << " ";
+
+        for (int i = 0; i < numInputs; i++) {
+            for (int j = 0; j < numNodesPerLayer; j++) {
+                inputWeights[i * numNodesPerLayer + j] -= DFinputWeights[i * numNodesPerLayer + j];
             }
         }
+        for (int l = 0; l < numHiddenLayers - 1; l++) {
+            for (int i = 0; i < numNodesPerLayer; i++) {
+                for (int j = 0; j < numNodesPerLayer; j++) {
+                    hiddenWeights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] -= DFhiddenWeights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j];
+                }
+            }
+        }
+        for (int i = 0; i < numNodesPerLayer; i++) {
+            for (int j = 0; j < numOutputs; j++) {
+                outputWeights[i * numOutputs + j] -= DFoutputWeights[i * numOutputs + j];
+            }
+        }
+
+        glBufferData(GL_SHADER_STORAGE_BUFFER, numNodesPerLayer * (numHiddenLayers - 1) * numNodesPerLayer * sizeof(float), &hiddenWeights[0], GL_DYNAMIC_DRAW);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, numInputs * numNodesPerLayer * sizeof(float), &inputWeights[0], GL_DYNAMIC_DRAW);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, numNodesPerLayer * numOutputs * sizeof(float), &outputWeights[0], GL_DYNAMIC_DRAW);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
+        glUseProgram(shaderProgram);
+        //std::cout << std::endl;
+        //for (int i = 0; i < 5; i++) {
+        //    for (int j = 0; j < numOutputs; j++) {
+        //        std::cout << DFoutputWeights[i * numOutputs + j] << " ";
+        //    }
+        //}
         glEnableClientState(GL_VERTEX_ARRAY);
         glVertexPointer(3, GL_FLOAT, 0, vertices);
         glDrawArrays(GL_TRIANGLES, 0, 3);

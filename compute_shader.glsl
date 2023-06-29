@@ -37,7 +37,7 @@ const unsigned int numNodesPerLayer = 40;
 const unsigned int numInputs = 6;
 const unsigned int numOutputs = 4;
 
-const int MAX_ITER = 30;
+const int MAX_ITER = 5;
 
 float inputVec[numInputs];
 float hiddenVec[numNodesPerLayer * numHiddenLayers];
@@ -123,7 +123,7 @@ void backwards(float loss) {
     float d_hidden_weights[numNodesPerLayer * numNodesPerLayer * (numHiddenLayers - 1)];
     float d_output_weights[numNodesPerLayer * numOutputs];
 
-    float learning_rate = 0.05;
+    float learning_rate = 0.0005;
 
     float d_output_nodes[numOutputs];
     float d_hidden_nodes[numNodesPerLayer * numHiddenLayers];
@@ -212,16 +212,16 @@ void main() {
 
     float DISTANCE_THRESHOLD = 0.001;
     float min_scale = min(resolution.x, resolution.y);
-    vec2 uv = vec2(gl_LocalInvocationID.x, gl_LocalInvocationID.y) / min_scale;
+    vec2 uv = vec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) / min_scale;
     float ratio = resolution.x / resolution.y;
 
     vec3 rayDirection = vec3(uv * 2.0 - vec2(ratio, 1.0), -1.0);
     vec3 rayOrigin = vec3(0.0, 0.0, 0.0);
 
    
-    vec3 cameraPosition = 10 * vec3(sin(time), 0.0, cos(time));
+    vec3 cameraPosition = vec3(0.0, 0.0, -5.0);
 
-    vec3 cameraForward_w = normalize(vec3(1.0 * sin(time), 0.0, 1.0 * cos(time)));
+    vec3 cameraForward_w = vec3(0.0, 0.0, 1.0);
     vec3 cameraUp_w = normalize(vec3(0.0, 1.0, 0.0));
     vec3 cameraRight_w = cross(cameraForward_w, cameraUp_w);
 

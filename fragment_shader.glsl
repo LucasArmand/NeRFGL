@@ -53,7 +53,9 @@ void getSample(vec3 pos, vec3 dir) {
     }
 
     for(int i = 0; i < numNodesPerLayer; i++) {
-        hiddenVec[i] = 1 / (1 + exp(-hiddenVec[i]));
+        hiddenVec[i] = max(0, hiddenVec[i]);
+        // sigmoid
+        //hiddenVec[i] = 1 / (1 + exp(-hiddenVec[i]));
     }
 
     for (int l = 1; l < numHiddenLayers; l++) {
@@ -63,51 +65,26 @@ void getSample(vec3 pos, vec3 dir) {
             }
         }
         for(int i = 0; i < numNodesPerLayer; i++) {
-            hiddenVec[l * numNodesPerLayer + i] = 1 / (1 + exp(-hiddenVec[l * numNodesPerLayer + i]));
+            hiddenVec[l * numNodesPerLayer + i] = max(0, hiddenVec[l * numNodesPerLayer + i]);
+            // sigmoid
+            //hiddenVec[l * numNodesPerLayer + i] = 1 / (1 + exp(-hiddenVec[l * numNodesPerLayer + i]));
         }
     }
     for (int i = 0; i < numNodesPerLayer; i++) {
         for (int j = 0; j < numOutputs; j++) {
-            outputVec[j] += hiddenVec[(numHiddenLayers - 1) * numNodesPerLayer + i] * outputWeights[i * numNodesPerLayer + j];
+            outputVec[j] += hiddenVec[(numHiddenLayers - 1) * numNodesPerLayer + i] * outputWeights[i * numOutputs + j];
         }
     }
     for(int i = 0; i < numOutputs; i++) {
-        outputVec[i] = 1 / (1 + exp(-outputVec[i]));
+        outputVec[i] = max(0, outputVec[i]);
+        //sigmoid
+        //outputVec[i] = 1 / (1 + exp(-outputVec[i]));
     }
 
     sampleColor = vec3(outputVec[0], outputVec[1], outputVec[2]);
     sampleDensity = outputVec[3];
 
-
-/*
-    sampleColor = pos;
-    sampleDensity = exp(-length(pos)) * sin(pos.x + time) * cos(pos.z + time * 0.7);
-    if (pos.x < 1.0 && pos.x > 0.0 && pos.y < 1.0 && pos.y > 0.0 && pos.z < 1.0 && pos.z > 0) {
-        sampleDensity = 1.0;
-        sampleColor = vec3(1.0, 1.0, 1.0);
-    }
-    if (pos.x < 1.0 && pos.x > 0.0 && pos.y < 1.0 && pos.y > 0.0 && pos.z < 2.0 && pos.z > 1.0) {
-        sampleDensity = 2.0;
-        sampleColor = vec3(0.0, 1.0, 0.0);
-    }
-*/
 }
-
-void getSampleTest(vec3 pos, vec3 dir) {
-    sampleColor = vec3(-pos.x, pos.y, pos.z) * vec3(1.0, 1.0, 1.0);
-    sampleDensity = exp(-length(pos));// * sin(pos.x + time) * cos(pos.z + time * 0.7);
-    /*
-    if (pos.x < 1.0 && pos.x > 0.0 && pos.y < 1.0 && pos.y > 0.0 && pos.z < 1.0 && pos.z > 0) {
-        sampleDensity = 1.0;
-        sampleColor = vec3(1.0, 1.0, 1.0);
-    }
-    if (pos.x < 1.0 && pos.x > 0.0 && pos.y < 1.0 && pos.y > 0.0 && pos.z < 2.0 && pos.z > 1.0) {
-        sampleDensity = 2.0;
-        sampleColor = vec3(0.0, 1.0, 0.0);
-    }
-    */
-}
-
 
 void main()
 {
@@ -115,7 +92,7 @@ void main()
 
     float MIN_RAY_DISTANCE = 1.0;
     float MAX_RAY_DISTANCE = 10.0;
-    int MAX_ITER = 30;
+    int MAX_ITER = 5;
     
     float DISTANCE_THRESHOLD = 0.001;
     float min_scale = min(resolution.x, resolution.y);
@@ -126,9 +103,9 @@ void main()
     vec3 rayOrigin = vec3(0.0, 0.0, 0.0);
 
    
-    vec3 cameraPosition = 10 * vec3(sin(time), 0.0, cos(time));
+    vec3 cameraPosition = vec3(0.0, 0.0, -5.0); //10 * vec3(sin(time), 0.0, cos(time));
 
-    vec3 cameraForward_w = normalize(vec3(1.0 * sin(time), 0.0, 1.0 * cos(time)));
+    vec3 cameraForward_w = vec3(0.0, 0.0, 1.0);
     vec3 cameraUp_w = normalize(vec3(0.0, 1.0, 0.0));
     vec3 cameraRight_w = cross(cameraForward_w, cameraUp_w);
 
