@@ -33,6 +33,13 @@ layout(std430, binding=11) buffer OutputBiasWeights{
 layout(std430, binding=9) buffer Loss{
     float loss;
 };
+layout(std430, binding=12) buffer InputData{
+    vec2 inputData[];
+};
+layout(std430, binding=13) buffer OutputData{
+    float outputData[];
+};
+
 uniform vec2 resolution;
 uniform float time;
 
@@ -41,11 +48,11 @@ uniform sampler2D imageTexture;
 vec3 sampleColor;
 float sampleDensity;
 
+const int trainingSetSize = 10000;
 
-
-const unsigned int numHiddenLayers = 5;
-const unsigned int numNodesPerLayer = 5;
-const unsigned int numInputs = 3;
+const unsigned int numHiddenLayers = 3;
+const unsigned int numNodesPerLayer = 10;
+const unsigned int numInputs = 2;
 const unsigned int numOutputs = 1;
 
 const int MAX_ITER = 5;
@@ -64,11 +71,10 @@ struct raySample {
 
 struct raySample samples[MAX_ITER];
 
-float forward(vec3 pos) {
+float forward(vec2 pos) {
 
     inputVec[0] = pos.x;
     inputVec[1] = pos.y;
-    inputVec[2] = pos.z;
 
     
     for (int i = 0; i < numHiddenLayers; i++) {
@@ -156,7 +162,7 @@ void backwards(float diff) {
         }
     }
 
-    float learning_rate = 0.00001;
+    float learning_rate = 0.001;
 
     float d_output_nodes[numOutputs];
     float d_hidden_nodes[numNodesPerLayer * numHiddenLayers];
@@ -168,12 +174,7 @@ void backwards(float diff) {
 
     //Last layer of weights
     for (int j = 0; j < numOutputs; j++) {
-        //if (outputVec[j] > 0) {
-            d_output_nodes[j] = diff;
-        //} else {
-           // d_output_nodes[j] = 0;   
-        //}
-       
+         d_output_nodes[j] = diff;
     }
     
 
@@ -235,11 +236,11 @@ void backwards(float diff) {
     //updating bias weights
     for (int l = 0; l < numHiddenLayers; l++) {
         for (int i = 0; i < numNodesPerLayer; i++) {
-            hiddenBiasWeights[l * numNodesPerLayer + i] += d_hidden_nodes[l * numNodesPerLayer + i] * learning_rate;
+            hiddenBiasWeights[l * numNodesPerLayer + i] -= d_hidden_nodes[l * numNodesPerLayer + i] * learning_rate;
         }
     }
     for (int i = 0; i < numOutputs; i++) {
-        outputBiasWeights[i] += d_output_nodes[i] * learning_rate;
+        outputBiasWeights[i] -= d_output_nodes[i] * learning_rate;
     }
     
     
@@ -247,9 +248,19 @@ void backwards(float diff) {
 
 
 void main() {
-    float value = forward(vec3(0.69, 0.420, 0.0));
-    loss = (0.5 - value) * (0.5 - value);
-    //df_output_weights[0] = 5;
-    backwards(loss);
-    
+    loss = 0;
+    for (int i = 0; i < trainingSetSize - 2000; i++) {
+        float value = forward(inputData[i]);
+        float target = outputData[i];
+        //loss += (target - value) * (target - value);
+        //df_output_weights[0] = 5;
+        backwards(value - target);
+    }
+    for (int i = trainingSetSize - 2000; i < trainingSetSize; i++) {
+         float value = forward(inputData[i]);
+         float target = outputData[i];
+         float err = (target - value) * (target - value);
+         loss += err;
+    }
+    loss = loss / 2000;
 }

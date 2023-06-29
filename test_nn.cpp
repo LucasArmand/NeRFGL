@@ -34,7 +34,9 @@ double randf(double min, double max)
 {
     return (((double)rand()) / RAND_MAX) * (max - min) + min;
 }
-
+struct pos {
+    float x, y;
+};
 
 
 int main() {
@@ -85,11 +87,12 @@ int main() {
         return -1;
     }
 
-    const unsigned int numHiddenLayers = 5;
-    const unsigned int numNodesPerLayer = 5;
-    const unsigned int numInputs = 3;
+    const unsigned int numHiddenLayers = 3;
+    const unsigned int numNodesPerLayer = 10;
+    const unsigned int numInputs = 2;
     const unsigned int numOutputs = 1;
 
+    const int trainingSetSize = 10000;
 
     float inputWeights[numInputs * numNodesPerLayer];
     float inputVec[numInputs];
@@ -99,6 +102,16 @@ int main() {
     float outputVec[numOutputs];
     float hiddenBias[numHiddenLayers * numNodesPerLayer];
     float outputBias[numOutputs];
+    struct pos inputData[trainingSetSize];
+    float outputData[trainingSetSize];
+
+    for (int i = 0; i < trainingSetSize; i++) {
+        float x = randf(-2.0, 2.0);
+        float y = randf(-2.0, 2.0);
+        inputData[i].x = x;
+        inputData[i].y = y;
+        outputData[i] = (sin(x) + 1.0 > y && x - 1.0 < y) ? 1.0 : 0.0;
+    }
 
     //initialize weights
 
@@ -179,6 +192,16 @@ int main() {
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, outputBiasSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, numOutputs * sizeof(float), &outputBias[0], GL_DYNAMIC_DRAW);
 
+    GLuint inputDataSSBO;
+    glGenBuffers(1, &inputDataSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, inputDataSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, trainingSetSize * sizeof(pos), &inputData[0], GL_DYNAMIC_DRAW);
+
+    GLuint outputDataSSBO;
+    glGenBuffers(1, &outputDataSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, outputDataSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, trainingSetSize * sizeof(float), &outputData[0], GL_DYNAMIC_DRAW);
+
     GLuint computeProgram;
     computeProgram = glCreateProgram();
     glAttachShader(computeProgram, computeShader);
@@ -193,10 +216,12 @@ int main() {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 9, lossSSBO);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, hiddenBiasSSBO);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 11, outputBiasSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 12, inputDataSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 13, outputDataSSBO);
 
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
 
-    for (int i = 0; i < 20; i++) {
+    for (int i = 0; i < 20000; i++) {
 
         glUseProgram(computeProgram);
         glDispatchCompute(1, 1, 1);
@@ -216,6 +241,7 @@ int main() {
         //Update weights
         std::cout << "Loss " << loss << std::endl;
         
+        /*
         std::cout << "Input Vec: ";
         for (int i = 0; i < numInputs; i++) {
             std::cout << inputVec[i] << " ";
@@ -247,13 +273,13 @@ int main() {
         
         for (int i = 0; i < numInputs; i++) {
             for (int j = 0; j < numNodesPerLayer; j++) {
-                std::cout << inputWeights[i * numNodesPerLayer + j] << " ";
+                //std::cout << inputWeights[i * numNodesPerLayer + j] << " ";
             }
         }
         for (int l = 0; l < numHiddenLayers - 1; l++) {
             for (int i = 0; i < numNodesPerLayer; i++) {
                 for (int j = 0; j < numNodesPerLayer; j++) {
-                    std::cout << hiddenWeights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] << " ";
+                    //std::cout << hiddenWeights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] << " ";
                 }
             }
         }
@@ -262,7 +288,7 @@ int main() {
                 std::cout << outputWeights[i * numOutputs  + j] << " ";
             }
         }
-        
+        */
         
         /*
         for (int i = 0; i < numInputs; i++) {
