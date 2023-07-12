@@ -87,21 +87,30 @@ int main() {
         return -1;
     }
 
-    const unsigned int numHiddenLayers = 3;
-    const unsigned int numNodesPerLayer = 10;
+    const unsigned int numHiddenLayers = 2;
+    const unsigned int numNodesPerLayer = 20;
     const unsigned int numInputs = 2;
     const unsigned int numOutputs = 1;
 
-    const int trainingSetSize = 10000;
+    const int trainingSetSize = 5000;
+    const int batchSize = 500;
+    float learning_rate = 1;
+
+    int numEpochs = 30000;
 
     float inputWeights[numInputs * numNodesPerLayer];
-    float inputVec[numInputs];
+    float* batchDeltaInputWeights = (float*)malloc(sizeof(float)*numInputs * numNodesPerLayer * batchSize);
+
     float* hiddenWeights = (float*)malloc(sizeof(float) * (numHiddenLayers - 1) * numNodesPerLayer * numNodesPerLayer);
-    float* hiddenVec = (float*)malloc(sizeof(float) * numHiddenLayers * numNodesPerLayer);
+    float* batchDeltaHiddenWeights = (float*)malloc(sizeof(float) * (numHiddenLayers - 1) * numNodesPerLayer * numNodesPerLayer * batchSize);
+
     float outputWeights[numNodesPerLayer * numOutputs];
-    float outputVec[numOutputs];
+    float* batchDeltaOutputWeights = (float*)malloc(sizeof(float) * numNodesPerLayer * numOutputs * batchSize);
+
     float hiddenBias[numHiddenLayers * numNodesPerLayer];
     float outputBias[numOutputs];
+    float* batchDeltaBiasWeights = (float*)malloc(sizeof(float) * (numHiddenLayers * numNodesPerLayer + numOutputs) * batchSize);
+
     struct pos inputData[trainingSetSize];
     float outputData[trainingSetSize];
 
@@ -110,13 +119,12 @@ int main() {
         float y = randf(-2.0, 2.0);
         inputData[i].x = x;
         inputData[i].y = y;
-        outputData[i] = (sin(x) + 1.0 > y && x - 1.0 < y) ? 1.0 : 0.0;
+        outputData[i] = (sin(3 * x) + 1.0 > y && x - 1.0 < y) ? 1.0 : 0.0;
     }
 
     //initialize weights
 
     for (int i = 0; i < numInputs; i++) {
-        inputVec[i] = 0.0;
         for (int j = 0; j < numNodesPerLayer; j++) {
             inputWeights[i * numNodesPerLayer + j] = randf(0, 1);
             
@@ -125,20 +133,17 @@ int main() {
     for (int l = 0; l < numHiddenLayers; l++) {
         for (int i = 0; i < numNodesPerLayer; i++) {
             hiddenBias[l * numNodesPerLayer + i] = randf(0, 1.0);
-            hiddenVec[l * numNodesPerLayer + i] = 0;
         }
     }
     for (int l = 0; l < numHiddenLayers - 1; l++) {
         for (int i = 0; i < numNodesPerLayer; i++) {
             for (int j = 0; j < numNodesPerLayer; j++) {
                 hiddenWeights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] = randf(0, 1);
-                
             }
         }
     }
     for (int j = 0; j < numOutputs; j++) {
         outputBias[j] = randf(0.0, 1.0);
-        outputVec[j] = 0.0;
     }
     for (int i = 0; i < numNodesPerLayer; i++) {
         for (int j = 0; j < numOutputs; j++) {
@@ -161,26 +166,31 @@ int main() {
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, outputWeightsSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, numNodesPerLayer * numOutputs * sizeof(float), &outputWeights[0], GL_DYNAMIC_DRAW);
 
-    GLuint hiddenVecSSBO;
-    glGenBuffers(1, &hiddenVecSSBO);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, hiddenVecSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, numNodesPerLayer * numHiddenLayers  * sizeof(float), &hiddenVec[0], GL_DYNAMIC_DRAW);
+    GLuint batchDeltaHiddenWeightsSSBO;
+    glGenBuffers(1, &batchDeltaHiddenWeightsSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, batchDeltaHiddenWeightsSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, numNodesPerLayer * numNodesPerLayer * (numHiddenLayers - 1) * batchSize * sizeof(float), &batchDeltaHiddenWeights[0], GL_DYNAMIC_DRAW);
 
-    GLuint inputVecSSBO;
-    glGenBuffers(1, &inputVecSSBO);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, inputVecSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, numInputs * sizeof(float), &inputVec[0], GL_DYNAMIC_DRAW);
+    GLuint batchDeltaInputWeightsSSBO;
+    glGenBuffers(1, &batchDeltaInputWeightsSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, batchDeltaInputWeightsSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, numInputs * batchSize * numNodesPerLayer * sizeof(float), &batchDeltaInputWeights[0], GL_DYNAMIC_DRAW);
 
-    GLuint outputVecSSBO;
-    glGenBuffers(1, &outputVecSSBO);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, outputVecSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, numOutputs * sizeof(float), &outputVec[0], GL_DYNAMIC_DRAW);
+    GLuint batchDeltaOutputWeightsSSBO;
+    glGenBuffers(1, &batchDeltaOutputWeightsSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, batchDeltaOutputWeightsSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, numOutputs * numNodesPerLayer * batchSize * sizeof(float), &batchDeltaOutputWeights[0], GL_DYNAMIC_DRAW);
 
-    float loss;
+    GLuint batchDeltaBiasWeightsSSBO;
+    glGenBuffers(1, &batchDeltaBiasWeightsSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, batchDeltaBiasWeightsSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, (numHiddenLayers * numNodesPerLayer + numOutputs) * batchSize * sizeof(float), &batchDeltaBiasWeights[0], GL_DYNAMIC_DRAW);
+
+    float loss[batchSize];
     GLuint lossSSBO;
     glGenBuffers(1, &lossSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, lossSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(float), &loss, GL_DYNAMIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(float) * batchSize, &loss, GL_DYNAMIC_DRAW);
 
     GLuint hiddenBiasSSBO;
     glGenBuffers(1, &hiddenBiasSSBO);
@@ -207,120 +217,181 @@ int main() {
     glAttachShader(computeProgram, computeShader);
     glLinkProgram(computeProgram);
 
+    GLint indexLoc = glGetUniformLocation(computeProgram, "startTrainingIndex");
+
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, hiddenWeightsSSBO);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, inputWeightsSSBO);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, outputWeightsSSBO);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, hiddenVecSSBO);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, inputVecSSBO);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, outputVecSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, batchDeltaHiddenWeightsSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, batchDeltaInputWeightsSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, batchDeltaOutputWeightsSSBO);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 9, lossSSBO);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, hiddenBiasSSBO);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 11, outputBiasSSBO);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 12, inputDataSSBO);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 13, outputDataSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 14, batchDeltaBiasWeightsSSBO);
 
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
 
-    for (int i = 0; i < 20000; i++) {
 
-        glUseProgram(computeProgram);
-        glDispatchCompute(1, 1, 1);
-        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
+    
 
-        //glGetNamedBufferSubData(inputWeightsSSBO, 0, numNodesPerLayer * numInputs * sizeof(float), &inputWeights[0]);
-        //glGetNamedBufferSubData(hiddenWeightsSSBO, 0, numNodesPerLayer * numNodesPerLayer * (numHiddenLayers - 1) * sizeof(float), &hiddenWeights[0]);
-        //glGetNamedBufferSubData(outputWeightsSSBO, 0, numNodesPerLayer * numOutputs * sizeof(float), &outputWeights[0]);
-        glGetNamedBufferSubData(inputVecSSBO, 0, numInputs * sizeof(float), &inputVec[0]);
-        glGetNamedBufferSubData(hiddenVecSSBO, 0, numNodesPerLayer * numHiddenLayers * sizeof(float), &hiddenVec[0]);
-        glGetNamedBufferSubData(outputVecSSBO, 0, numOutputs * sizeof(float), &outputVec[0]);
-        glGetNamedBufferSubData(hiddenBiasSSBO, 0, numNodesPerLayer* numHiddenLayers * sizeof(float), &hiddenBias[0]);
-        glGetNamedBufferSubData(outputBiasSSBO, 0, numOutputs * sizeof(float), &outputBias[0]);
-        glGetNamedBufferSubData(lossSSBO, 0,  sizeof(float), &loss);
-        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
-       
-        //Update weights
-        std::cout << "Loss " << loss << std::endl;
-        
-        /*
-        std::cout << "Input Vec: ";
-        for (int i = 0; i < numInputs; i++) {
-            std::cout << inputVec[i] << " ";
-        }
-        
-        for (int l = 0; l < numHiddenLayers; l++) {
-            std::cout << std::endl << "Hidden Layer " << l + 1 << " ";
-            for (int i = 0; i < numNodesPerLayer; i++) {
-                std::cout << i << "=" << hiddenVec[l * numNodesPerLayer + i] << " ";
+    for (int epoch = 0; epoch < numEpochs; epoch++) {
+        float totalLoss = 0.0;
+        for (int index = 0; index < trainingSetSize - batchSize + 1; index += batchSize) {
+            glUniform1i(indexLoc, index);
+
+            glUseProgram(computeProgram);
+            glDispatchCompute(1, 1, 1);
+            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
+
+            glGetNamedBufferSubData(inputWeightsSSBO, 0, numNodesPerLayer * numInputs * sizeof(float), &inputWeights[0]);
+            glGetNamedBufferSubData(hiddenWeightsSSBO, 0, numNodesPerLayer * numNodesPerLayer * (numHiddenLayers - 1) * sizeof(float), &hiddenWeights[0]);
+            glGetNamedBufferSubData(outputWeightsSSBO, 0, numNodesPerLayer * numOutputs * sizeof(float), &outputWeights[0]);
+
+            glGetNamedBufferSubData(batchDeltaInputWeightsSSBO, 0, batchSize * numNodesPerLayer * numInputs * sizeof(float), &batchDeltaInputWeights[0]);
+            glGetNamedBufferSubData(batchDeltaHiddenWeightsSSBO, 0, batchSize * numNodesPerLayer * numNodesPerLayer * (numHiddenLayers - 1) * sizeof(float), &batchDeltaHiddenWeights[0]);
+            glGetNamedBufferSubData(batchDeltaOutputWeightsSSBO, 0, batchSize * numNodesPerLayer * numOutputs * sizeof(float), &batchDeltaOutputWeights[0]);
+
+            //glGetNamedBufferSubData(inputVecSSBO, 0, numInputs * sizeof(float), &inputVec[0]);
+            //glGetNamedBufferSubData(hiddenVecSSBO, 0, numNodesPerLayer * numHiddenLayers * sizeof(float), &hiddenVec[0]);
+            //glGetNamedBufferSubData(outputVecSSBO, 0, numOutputs * sizeof(float), &outputVec[0]);
+            glGetNamedBufferSubData(hiddenBiasSSBO, 0, numNodesPerLayer * numHiddenLayers * sizeof(float), &hiddenBias[0]);
+            glGetNamedBufferSubData(outputBiasSSBO, 0, numOutputs * sizeof(float), &outputBias[0]);
+            glGetNamedBufferSubData(batchDeltaBiasWeightsSSBO, 0, (numHiddenLayers * numNodesPerLayer + numOutputs) * batchSize * sizeof(float), &batchDeltaBiasWeights[0]);
+
+            glGetNamedBufferSubData(lossSSBO, 0, sizeof(float) * batchSize, &loss);
+            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
+
+            //Update weights
+            for (int k = 0; k < batchSize; k++) {
+                //std::cout << loss[k] << std::endl;
+                totalLoss += loss[k];
+
             }
-        }
-        std::cout << std::endl << "Output Layer ";
-        for (int i = 0; i < numOutputs; i++) {
-            std::cout << outputVec[i] << " ";
-        }
-        std::cout << std::endl;
-        
-        for (int l = 0; l < numHiddenLayers; l++) {
-            std::cout << std::endl << "Hidden Bias " << l + 1 << " ";
-            for (int i = 0; i < numNodesPerLayer; i++) {
-                std::cout << i << "=" << hiddenBias[l * numNodesPerLayer + i] << " ";
-            }
-        }
-        std::cout << std::endl << "Output Bias ";
-        for (int i = 0; i < numOutputs; i++) {
-            std::cout << outputBias[i] << " ";
-        }
-        std::cout << std::endl;
-        
-        for (int i = 0; i < numInputs; i++) {
-            for (int j = 0; j < numNodesPerLayer; j++) {
-                //std::cout << inputWeights[i * numNodesPerLayer + j] << " ";
-            }
-        }
-        for (int l = 0; l < numHiddenLayers - 1; l++) {
-            for (int i = 0; i < numNodesPerLayer; i++) {
+            for (int i = 0; i < numInputs; i++) {
                 for (int j = 0; j < numNodesPerLayer; j++) {
-                    //std::cout << hiddenWeights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] << " ";
+                    for (int k = 0; k < batchSize; k++) {
+                        inputWeights[i * numNodesPerLayer + j] -= batchDeltaInputWeights[(i * numNodesPerLayer + j) * batchSize + k] * learning_rate;
+                    }
                 }
             }
-        }
-        for (int i = 0; i < numNodesPerLayer; i++) {
-            for (int j = 0; j < numOutputs; j++) {
-                std::cout << outputWeights[i * numOutputs  + j] << " ";
-            }
-        }
-        */
-        
-        /*
-        for (int i = 0; i < numInputs; i++) {
-            for (int j = 0; j < numNodesPerLayer; j++) {
-                inputWeights[i * numNodesPerLayer + j] -= DFinputWeights[i * numNodesPerLayer + j];
-            }
-        }
-        for (int l = 0; l < numHiddenLayers - 1; l++) {
-            for (int i = 0; i < numNodesPerLayer; i++) {
-                for (int j = 0; j < numNodesPerLayer; j++) {
-                    hiddenWeights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] -= DFhiddenWeights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j];
+            for (int l = 0; l < numHiddenLayers - 1; l++) {
+                for (int i = 0; i < numNodesPerLayer; i++) {
+                    for (int j = 0; j < numNodesPerLayer; j++) {
+                        for (int k = 0; k < batchSize; k++) {
+                            hiddenWeights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] -= batchDeltaHiddenWeights[(l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j) * batchSize + k] * learning_rate;
+                            //std::cout << batchDeltaHiddenWeights[(l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j) * batchSize + k] << " ";
+                        }
+                    }
                 }
             }
-        }
-        for (int i = 0; i < numNodesPerLayer; i++) {
-            for (int j = 0; j < numOutputs; j++) {
-                outputWeights[i * numOutputs + j] -= DFoutputWeights[i * numOutputs + j];
+            for (int i = 0; i < numNodesPerLayer; i++) {
+                for (int j = 0; j < numOutputs; j++) {
+                    for (int k = 0; k < batchSize; k++) {
+                        outputWeights[i * numOutputs + j] -= batchDeltaOutputWeights[(i * numOutputs + j) * batchSize + k] * learning_rate;
+                        //std::cout << batchDeltaOutputWeights[(i * numOutputs + j) * batchSize + k] << " ";
+                    }
+                }
             }
+            for (int k = 0; k < batchSize; k++) {
+                for (int l = 0; l < numHiddenLayers; l++) {
+                    for (int i = 0; i < numNodesPerLayer; i++) {
+                        hiddenBias[l * numNodesPerLayer + i] -= batchDeltaBiasWeights[(l * numNodesPerLayer + i) * batchSize + k] * learning_rate;
+                    }
+                }
+                for (int i = 0; i < numOutputs; i++) {
+                    outputBias[i] -= batchDeltaBiasWeights[(numHiddenLayers * numNodesPerLayer + i) * batchSize + k] * learning_rate;
+                }
+            }
+            /*
+            std::cout << "Input Vec: ";
+            for (int i = 0; i < numInputs; i++) {
+                std::cout << inputVec[i] << " ";
+            }
+
+            for (int l = 0; l < numHiddenLayers; l++) {
+                std::cout << std::endl << "Hidden Layer " << l + 1 << " ";
+                for (int i = 0; i < numNodesPerLayer; i++) {
+                    std::cout << i << "=" << hiddenVec[l * numNodesPerLayer + i] << " ";
+                }
+            }
+            std::cout << std::endl << "Output Layer ";
+            for (int i = 0; i < numOutputs; i++) {
+                std::cout << outputVec[i] << " ";
+            }
+            std::cout << std::endl;
+
+            for (int l = 0; l < numHiddenLayers; l++) {
+                std::cout << std::endl << "Hidden Bias " << l + 1 << " ";
+                for (int i = 0; i < numNodesPerLayer; i++) {
+                    std::cout << i << "=" << hiddenBias[l * numNodesPerLayer + i] << " ";
+                }
+            }
+            std::cout << std::endl << "Output Bias ";
+            for (int i = 0; i < numOutputs; i++) {
+                std::cout << outputBias[i] << " ";
+            }
+            std::cout << std::endl;
+
+            for (int i = 0; i < numInputs; i++) {
+                for (int j = 0; j < numNodesPerLayer; j++) {
+                    //std::cout << inputWeights[i * numNodesPerLayer + j] << " ";
+                }
+            }
+            for (int l = 0; l < numHiddenLayers - 1; l++) {
+                for (int i = 0; i < numNodesPerLayer; i++) {
+                    for (int j = 0; j < numNodesPerLayer; j++) {
+                        //std::cout << hiddenWeights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] << " ";
+                    }
+                }
+            }
+            for (int i = 0; i < numNodesPerLayer; i++) {
+                for (int j = 0; j < numOutputs; j++) {
+                    std::cout << outputWeights[i * numOutputs  + j] << " ";
+                }
+            }
+            */
+
+            /*
+            for (int i = 0; i < numInputs; i++) {
+                for (int j = 0; j < numNodesPerLayer; j++) {
+                    inputWeights[i * numNodesPerLayer + j] -= DFinputWeights[i * numNodesPerLayer + j];
+                }
+            }
+            for (int l = 0; l < numHiddenLayers - 1; l++) {
+                for (int i = 0; i < numNodesPerLayer; i++) {
+                    for (int j = 0; j < numNodesPerLayer; j++) {
+                        hiddenWeights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] -= DFhiddenWeights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j];
+                    }
+                }
+            }
+            for (int i = 0; i < numNodesPerLayer; i++) {
+                for (int j = 0; j < numOutputs; j++) {
+                    outputWeights[i * numOutputs + j] -= DFoutputWeights[i * numOutputs + j];
+                }
+            }
+            */
+
+
+
+
+            //Moved updated weights into GPU memory
+
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, hiddenWeightsSSBO);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, numNodesPerLayer * (numHiddenLayers - 1) * numNodesPerLayer * sizeof(float), &hiddenWeights[0], GL_DYNAMIC_DRAW);
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, inputWeightsSSBO);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, numInputs * numNodesPerLayer * sizeof(float), &inputWeights[0], GL_DYNAMIC_DRAW);
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, outputWeightsSSBO);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, numNodesPerLayer * numOutputs * sizeof(float), &outputWeights[0], GL_DYNAMIC_DRAW);
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, hiddenBiasSSBO);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, numHiddenLayers * numNodesPerLayer * sizeof(float), &hiddenBias[0], GL_DYNAMIC_DRAW);
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, outputBiasSSBO);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, numOutputs * sizeof(float), &outputBias[0], GL_DYNAMIC_DRAW);
+
+            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
         }
-        */
-        
-        
-        
-        
-        //Moved updated weights into GPU memory
-        /*
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, hiddenWeightsSSBO);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, numNodesPerLayer * (numHiddenLayers - 1) * numNodesPerLayer * sizeof(float), &hiddenWeights[0], GL_DYNAMIC_DRAW);
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, inputWeightsSSBO);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, numInputs * numNodesPerLayer * sizeof(float), &inputWeights[0], GL_DYNAMIC_DRAW);
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, outputWeightsSSBO);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, numNodesPerLayer * numOutputs * sizeof(float), &outputWeights[0], GL_DYNAMIC_DRAW);
-        */
+        std::cout << "Loss " << totalLoss / trainingSetSize << std::endl;
     }
 }

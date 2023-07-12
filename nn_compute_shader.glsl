@@ -1,37 +1,41 @@
 // The following defines are set in main.cpp
 // #define WORK_GROUP_SIZE_X
+#define BATCH_SIZE 500
 
-layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-
+layout (local_size_x = BATCH_SIZE, local_size_y = 1, local_size_z = 1) in;
+    float rate = 0.000001;
 //layout(std430, binding=5) buffer Pos{
 //    vec4 positions[];
 //};
 layout(std430, binding=3) buffer HiddenWeights{
-    float hiddenWeights[];
+    float hw[];
 };
 layout(std430, binding=4) buffer InputWeights{
-    float inputWeights[];
+    float iw[];
 };
 layout(std430, binding=5) buffer OutputWeights{
-    float outputWeights[];
+    float ow[];
 };
-layout(std430, binding=6) buffer HiddenVec{
-    float hiddenVec[];
+layout(std430, binding=6) buffer BatchDeltaHiddenWeights{
+    float bdhw[];
 };
-layout(std430, binding=7) buffer InputNodes{
-    float inputVec[];
+layout(std430, binding=7) buffer BatchDeltaInputWeights{
+    float bdiw[];
 };
-layout(std430, binding=8) buffer OutputVec{
-    float outputVec[];
+layout(std430, binding=8) buffer BatchDeltaOutputWeights{
+    float bdow[];
+};
+layout(std430, binding=14) buffer BatchDeltaBiasWeights{
+    float bdbw[];
 };
 layout(std430, binding=10) buffer HiddenBiasWeights{
-    float hiddenBiasWeights[];
+    float hb[];
 };
 layout(std430, binding=11) buffer OutputBiasWeights{
-    float outputBiasWeights[];
+    float ob[];
 };
 layout(std430, binding=9) buffer Loss{
-    float loss;
+    float loss[];
 };
 layout(std430, binding=12) buffer InputData{
     vec2 inputData[];
@@ -48,16 +52,23 @@ uniform sampler2D imageTexture;
 vec3 sampleColor;
 float sampleDensity;
 
-const int trainingSetSize = 10000;
+const int trainingSetSize = 5000;
+uniform int startTrainingIndex;
 
-const unsigned int numHiddenLayers = 3;
-const unsigned int numNodesPerLayer = 10;
-const unsigned int numInputs = 2;
-const unsigned int numOutputs = 1;
+const unsigned int layers = 2;
+const unsigned int hSize = 20;
+const unsigned int iSize = 2;
+const unsigned int oSize = 1;
+const unsigned int batchSize = BATCH_SIZE;
+unsigned int batch_index;
+
+float iVec[iSize];
+float hVec[hSize * layers];
+float oVec[oSize];
 
 const int MAX_ITER = 5;
 
-float targetVec[numOutputs];
+float targetVec[oSize];
 int trainingIndex = 0;
 
 struct raySample {
@@ -73,65 +84,80 @@ struct raySample samples[MAX_ITER];
 
 float forward(vec2 pos) {
 
-    inputVec[0] = pos.x;
-    inputVec[1] = pos.y;
+    iVec[0] = pos.x;
+    iVec[1] = pos.y;
 
-    
-    for (int i = 0; i < numHiddenLayers; i++) {
-        for (int j = 0; j < numNodesPerLayer; j++) {
-            hiddenVec[i * numNodesPerLayer + j] = 0.0;
+    // Initialize hidden nodes
+    for (int i = 0; i < layers; i++) {
+        for (int j = 0; j < hSize; j++) {
+            hVec[i * hSize + j] = 0.0;
         }
     }
 
-    for (int i = 0; i < numOutputs; i++) {
-        outputVec[i] = 0.0;
+    // Initialize output nodes
+    for (int i = 0; i < oSize; i++) {
+        oVec[i] = 0.0;
     }
 
-    for (int j = 0; j < numNodesPerLayer; j++) {
-        for (int i = 0; i < numInputs; i++) {
-            hiddenVec[j] += inputVec[i] * inputWeights[i * numNodesPerLayer + j];
+    //Forward to first hidden layer
+    for (int j = 0; j < hSize; j++) {
+        for (int i = 0; i < iSize; i++) {
+            hVec[j] += iVec[i] * iw[i * hSize + j];
         }
-        hiddenVec[j] += hiddenBiasWeights[j];
+        hVec[j] += hb[j];
      }
     
 
-    for(int i = 0; i < numNodesPerLayer; i++) {
-        hiddenVec[i] = max(0, hiddenVec[i]);
+    for(int i = 0; i < hSize; i++) {
+
+        // ReLU
+        hVec[i] = max(0, hVec[i]);
+
         // sigmoid
-        //hiddenVec[i] = 1 / (1 + exp(-hiddenVec[i]));
+        //hVec[i] = 1 / (1 + exp(-hVec[i]));
     }
 
-    for (int l = 1; l < numHiddenLayers; l++) {
-        for (int j = 0; j < numNodesPerLayer; j++) {
-            for (int i = 0; i < numNodesPerLayer; i++) {
-                hiddenVec[l * numNodesPerLayer + j] += hiddenVec[(l-1) * numNodesPerLayer + i] * hiddenWeights[(l-1) * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j];
+    // Forward to l-th hidden layer
+    for (int l = 1; l < layers; l++) {
+        for (int j = 0; j < hSize; j++) {
+            for (int i = 0; i < hSize; i++) {
+                hVec[l * hSize + j] += hVec[(l-1) * hSize + i] * hw[(l-1) * hSize * hSize + i * hSize + j];
             }
-            hiddenVec[l * numNodesPerLayer + j] += hiddenBiasWeights[l * numNodesPerLayer + j];
+            hVec[l * hSize + j] += hb[l * hSize + j];
         }
-        for(int i = 0; i < numNodesPerLayer; i++) {
-            hiddenVec[l * numNodesPerLayer + i] = max(0, hiddenVec[l * numNodesPerLayer + i]);
+
+        // l-th Hidden activation function
+        for(int i = 0; i < hSize; i++) {
+
+            //RELU
+            hVec[l * hSize + i] = max(0, hVec[l * hSize + i]);
+
             // sigmoid
-            //hiddenVec[l * numNodesPerLayer + i] = 1 / (1 + exp(-hiddenVec[l * numNodesPerLayer + i]));
+            //hVec[l * hSize + i] = 1 / (1 + exp(-hVec[l * hSize + i]));
+
         }
     }
-    for (int j = 0; j < numOutputs; j++) {
-        for (int i = 0; i < numNodesPerLayer; i++) {
-            outputVec[j] += hiddenVec[(numHiddenLayers - 1) * numNodesPerLayer + i] * outputWeights[i * numOutputs + j];
+
+    // Forward to output layer
+    for (int j = 0; j < oSize; j++) {
+        for (int i = 0; i < hSize; i++) {
+            oVec[j] += hVec[(layers - 1) * hSize + i] * ow[i * oSize + j];
         }
-        outputVec[j] += outputBiasWeights[j];
+        oVec[j] += ob[j];
     }
-    for(int i = 0; i < numOutputs; i++) {
-        //outputVec[i] = max(0, outputVec[i]);
+
+    // Output activation function
+    for(int i = 0; i < oSize; i++) {
+
+        //ReLU
+        //oVec[i] = max(0, oVec[i]);
+
         //sigmoid
-        //outputVec[i] = 1 / (1 + exp(-outputVec[i]));
+        //oVec[i] = 1 / (1 + exp(-oVec[i]));
+
     }
     
-    return outputVec[0];
-
-    /*
-    sampleColor = vec3(outputVec[0], outputVec[1], outputVec[2]);
-    sampleDensity = outputVec[3];
-    */
+    return oVec[0];
 
 }
 
@@ -139,108 +165,109 @@ float forward(vec2 pos) {
 
 void backwards(float diff) {
 
-    float d_input_weights[numInputs * numNodesPerLayer];
-    float d_hidden_weights[numNodesPerLayer * numNodesPerLayer * (numHiddenLayers - 1)];
-    float d_output_weights[numNodesPerLayer * numOutputs];
+    float d_iw[iSize * hSize];
+    float d_hw[hSize * hSize * (layers - 1)];
+    float d_ow[hSize * oSize];
 
-    for (int i = 0; i < numInputs; i++) {
-        for (int j = 0; j < numNodesPerLayer; j++) {
-            d_input_weights[i * numNodesPerLayer + j] = 0.0;
+    for (int i = 0; i < iSize; i++) {
+        for (int j = 0; j < hSize; j++) {
+            d_iw[i * hSize + j] = 0.0;
         }
     }
-    for (int l = 0; l < numHiddenLayers - 1; l++) {
-        for (int i = 0; i < numNodesPerLayer; i++) {
-            for (int j = 0; j < numNodesPerLayer; j++) {
-                d_hidden_weights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] = 0.0;
+    for (int l = 0; l < layers - 1; l++) {
+        for (int i = 0; i < hSize; i++) {
+            for (int j = 0; j < hSize; j++) {
+                d_hw[l * hSize * hSize + i * hSize + j] = 0.0;
             }
         }
     }
 
-   for (int i = 0; i < numNodesPerLayer; i++) {
-        for (int j = 0; j < numOutputs; j++) {
-            d_output_weights[i * numOutputs + j] = 0.0;
+   for (int i = 0; i < hSize; i++) {
+        for (int j = 0; j < oSize; j++) {
+            d_ow[i * oSize + j] = 0.0;
         }
     }
 
-    float learning_rate = 0.001;
 
-    float d_output_nodes[numOutputs];
-    float d_hidden_nodes[numNodesPerLayer * numHiddenLayers];
-    
-    // dE/dwij = dE/doj * doj/dwij = dE/dojk * doj/dnetj * dnetj / dwij
-    // dnetj / dwij = oi
+
+    float d_oVec[oSize];
+    float d_hVec[hSize * layers];
+
+
     // https://en.wikipedia.org/wiki/Backpropagation#Finding_the_derivative_of_the_error
 
-
     //Last layer of weights
-    for (int j = 0; j < numOutputs; j++) {
-         d_output_nodes[j] = diff;
+    for (int j = 0; j < oSize; j++) {
+         d_oVec[j] = diff;
     }
     
 
-   for (int i = 0; i < numNodesPerLayer; i++) {
-        for (int j = 0; j < numOutputs; j++) {
-            d_output_weights[i * numOutputs + j] = hiddenVec[(numHiddenLayers - 1) * numNodesPerLayer + i] * d_output_nodes[j];
+   for (int i = 0; i < hSize; i++) {
+        for (int j = 0; j < oSize; j++) {
+            d_ow[i * oSize + j] = hVec[(layers - 1) * hSize + i] * d_oVec[j];
         }
     }
         
     //Last hidden layer
-    for (int j = 0; j < numNodesPerLayer; j++) {
-        d_hidden_nodes[(numHiddenLayers - 1) * numNodesPerLayer + j] = 0.0;
+    for (int j = 0; j < hSize; j++) {
+        d_hVec[(layers - 1) * hSize + j] = 0.0;
         //ReLU derivative
-        if (hiddenVec[(numHiddenLayers - 1) * numNodesPerLayer + j] > 0) {
-            for (int k = 0; k < numOutputs; k++) {
-                d_hidden_nodes[(numHiddenLayers - 1) * numNodesPerLayer + j] += d_output_nodes[k] * outputWeights[j * numOutputs + k];
+        if (hVec[(layers - 1) * hSize + j] > 0) {
+            for (int k = 0; k < oSize; k++) {
+                d_hVec[(layers - 1) * hSize + j] += d_oVec[k] * ow[j * oSize + k];
             }
         }
     }
         
     //move backwards in hidden layers (destination, not including first layer)
-    for (uint l = numHiddenLayers - 1; l > 0; l--) {
-        for (int i = 0; i < numNodesPerLayer; i++) {
-            d_hidden_nodes[(l-1) * numNodesPerLayer + i] = 0.0;
-            for (int j = 0; j < numNodesPerLayer; j++) {
-                d_hidden_weights[(l-1) * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] = hiddenVec[(l-1) * numNodesPerLayer + i] * d_hidden_nodes[l * numNodesPerLayer + j];
-                if (hiddenVec[(l-1) * numNodesPerLayer + i] > 0) {
-                    d_hidden_nodes[(l-1) * numNodesPerLayer + i] += hiddenWeights[(l-1) * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] * d_hidden_nodes[l * numNodesPerLayer + j];
+    for (uint l = layers - 1; l > 0; l--) {
+        for (int i = 0; i < hSize; i++) {
+            d_hVec[(l-1) * hSize + i] = 0.0;
+            for (int j = 0; j < hSize; j++) {
+                d_hw[(l-1) * hSize * hSize + i * hSize + j] = hVec[(l-1) * hSize + i] * d_hVec[l * hSize + j];
+                if (hVec[(l-1) * hSize + i] > 0) {
+                    d_hVec[(l-1) * hSize + i] += hw[(l-1) * hSize * hSize + i * hSize + j] * d_hVec[l * hSize + j];
                 }
             }
         }
     }
     
-    //Input layer
-    for (int i = 0; i < numInputs; i++) {
-        for (int j = 0; j < numNodesPerLayer; j++) {
-            inputWeights[i * numNodesPerLayer + j] -= inputVec[i] * d_hidden_nodes[j] * learning_rate;
+    //Input weights derivative
+    for (int i = 0; i < iSize; i++) {
+        for (int j = 0; j < hSize; j++) {
+            d_iw[i * hSize + j] = iVec[i] * d_hVec[j];
+        }
+    }
+
+    for (int i = 0; i < iSize; i++) {
+        for (int j = 0; j < hSize; j++) {
+            bdiw[(i * hSize + j) * batchSize + batch_index] = d_iw[i * hSize + j] * rate;
         }
     }
         
-    
-    //Add this ray sample to the final weight delta
-    
-    for (int l = 0; l < numHiddenLayers - 1; l++) {
-        for (int i = 0; i < numNodesPerLayer; i++) {
-            for (int j = 0; j < numNodesPerLayer; j++) {
-                hiddenWeights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] -= d_hidden_weights[l * numNodesPerLayer * numNodesPerLayer + i * numNodesPerLayer + j] * learning_rate;
+    for (int l = 0; l < layers - 1; l++) {
+        for (int i = 0; i < hSize; i++) {
+            for (int j = 0; j < hSize; j++) {
+                bdhw[(l * hSize * hSize + i * hSize + j) * batchSize + batch_index] = d_hw[l * hSize * hSize + i * hSize + j] * rate;
             }
         }
     }
     
         
-    for (int i = 0; i < numNodesPerLayer; i++) {
-        for (int j = 0; j < numOutputs; j++) {
-            outputWeights[i * numOutputs + j] -= d_output_weights[i * numOutputs + j] * learning_rate;
+    for (int i = 0; i < hSize; i++) {
+        for (int j = 0; j < oSize; j++) {
+            bdow[(i * oSize + j) * batchSize + batch_index] = d_ow[i * oSize + j] * rate;
         }
     }
 
     //updating bias weights
-    for (int l = 0; l < numHiddenLayers; l++) {
-        for (int i = 0; i < numNodesPerLayer; i++) {
-            hiddenBiasWeights[l * numNodesPerLayer + i] -= d_hidden_nodes[l * numNodesPerLayer + i] * learning_rate;
+    for (int l = 0; l < layers; l++) {
+        for (int i = 0; i < hSize; i++) {
+            bdbw[(l * hSize + i) * batchSize + batch_index] = d_hVec[l * hSize + i] * rate;
         }
     }
-    for (int i = 0; i < numOutputs; i++) {
-        outputBiasWeights[i] -= d_output_nodes[i] * learning_rate;
+    for (int i = 0; i < oSize; i++) {
+        bdbw[(layers * hSize + i) * batchSize + batch_index] = d_oVec[i] * rate;
     }
     
     
@@ -248,19 +275,29 @@ void backwards(float diff) {
 
 
 void main() {
-    loss = 0;
-    for (int i = 0; i < trainingSetSize - 2000; i++) {
-        float value = forward(inputData[i]);
-        float target = outputData[i];
-        //loss += (target - value) * (target - value);
-        //df_output_weights[0] = 5;
-        backwards(value - target);
+    for (int i = 0; i < iSize; i++) {
+        iVec[i] = 0.0;
     }
-    for (int i = trainingSetSize - 2000; i < trainingSetSize; i++) {
-         float value = forward(inputData[i]);
-         float target = outputData[i];
-         float err = (target - value) * (target - value);
-         loss += err;
+    for (int l = 0; l < layers; l++) {
+        for (int i = 0; i < hSize; i++) {
+            hVec[l * hSize + i] = 0.0;
+        }
     }
-    loss = loss / 2000;
+    for (int i = 0; i < oSize; i++) {
+        oVec[i] = 0.0;
+    }
+    batch_index = gl_GlobalInvocationID.x;
+    loss[batch_index] = 0.0;
+
+    float value = forward(inputData[startTrainingIndex + batch_index]);
+    float target = outputData[startTrainingIndex + batch_index];
+    backwards(value - target);
+
+ 
+    //float value = forward(inputData[startTrainingIndex+ batch_index]);
+    //float target = outputData[startTrainingIndex + batch_index];
+    float err = (target - value) * (target - value);
+    loss[batch_index] = err;
+    //}
+    //loss = loss / 2000;
 }
